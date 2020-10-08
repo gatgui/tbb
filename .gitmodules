@@ -1,3 +1,6 @@
 [submodule "excons"]
 	path = excons
 	url = git://github.com/gatgui/excons.git
+[submodule "hwloc"]
+	path = hwloc
+	url = git://github.com/open-mpi/hwloc

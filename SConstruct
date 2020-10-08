@@ -5,11 +5,21 @@ import excons.tools.dl as dl
 import excons.tools.threads as threads
 
 
+excons.InitGlobals()
+
+mscver = excons.GetArgument("mscver", "14.0")
+excons.SetArgument("mscver", mscver)
+
+cxx11 = (excons.GetArgument("use-c++11", 1, int) != 0)
+if cxx11 and float(mscver) < 14.0:
+  print("mscver 14.0 or above required for c++11 standard")
+  sys.exit(1)
+
+tbb_static = (excons.GetArgument("tbb-static", 1, int) != 0)
+
+
 env = excons.MakeBaseEnv()
 
-
-cxx11 = (excons.GetArgument("use-c++11", 0, int) != 0)
-tbb_static = (excons.GetArgument("tbb-static", 1, int) != 0)
 
 def TBBName():
    return "tbb" + ("_static" if tbb_static else "")
