@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2017 Intel Corporation
+    Copyright (c) 2005-2018 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -29,6 +29,14 @@
     #endif
 #elif !defined(TBB_USE_EXCEPTIONS)
     #define TBB_USE_EXCEPTIONS 1
+#endif
+
+#if __TBB_CPP11_PRESENT
+#define __TBB_THROW_BAD_ALLOC
+#define __TBB_NO_THROW noexcept
+#else
+#define __TBB_THROW_BAD_ALLOC throw(std::bad_alloc)
+#define __TBB_NO_THROW throw()
 #endif
 
 #if MALLOC_UNIXLIKE_OVERLOAD_ENABLED || MALLOC_ZONE_OVERLOAD_ENABLED
@@ -231,7 +239,7 @@ void *__libc_realloc(void *ptr, size_t size)
 
 #include <new>
 
-void * operator new(size_t sz) throw (std::bad_alloc) {
+void* operator new(size_t sz) __TBB_THROW_BAD_ALLOC {
     void *res = scalable_malloc(sz);
 #if TBB_USE_EXCEPTIONS
     if (NULL == res)
@@ -239,7 +247,7 @@ void * operator new(size_t sz) throw (std::bad_alloc) {
 #endif /* TBB_USE_EXCEPTIONS */
     return res;
 }
-void* operator new[](size_t sz) throw (std::bad_alloc) {
+void* operator new[](size_t sz) __TBB_THROW_BAD_ALLOC {
     void *res = scalable_malloc(sz);
 #if TBB_USE_EXCEPTIONS
     if (NULL == res)
@@ -247,25 +255,25 @@ void* operator new[](size_t sz) throw (std::bad_alloc) {
 #endif /* TBB_USE_EXCEPTIONS */
     return res;
 }
-void operator delete(void* ptr) throw() {
+void operator delete(void* ptr) __TBB_NO_THROW {
     InitOrigPointers();
     __TBB_malloc_safer_free(ptr, (void (*)(void*))orig_free);
 }
-void operator delete[](void* ptr) throw() {
+void operator delete[](void* ptr) __TBB_NO_THROW {
     InitOrigPointers();
     __TBB_malloc_safer_free(ptr, (void (*)(void*))orig_free);
 }
-void* operator new(size_t sz, const std::nothrow_t&) throw() {
+void* operator new(size_t sz, const std::nothrow_t&) __TBB_NO_THROW {
     return scalable_malloc(sz);
 }
-void* operator new[](std::size_t sz, const std::nothrow_t&) throw() {
+void* operator new[](std::size_t sz, const std::nothrow_t&) __TBB_NO_THROW {
     return scalable_malloc(sz);
 }
-void operator delete(void* ptr, const std::nothrow_t&) throw() {
+void operator delete(void* ptr, const std::nothrow_t&) __TBB_NO_THROW {
     InitOrigPointers();
     __TBB_malloc_safer_free(ptr, (void (*)(void*))orig_free);
 }
-void operator delete[](void* ptr, const std::nothrow_t&) throw() {
+void operator delete[](void* ptr, const std::nothrow_t&) __TBB_NO_THROW {
     InitOrigPointers();
     __TBB_malloc_safer_free(ptr, (void (*)(void*))orig_free);
 }
@@ -337,13 +345,29 @@ void* __TBB_malloc_safer__aligned_realloc_##CRTLIB( void *ptr, size_t size, size
     return __TBB_malloc_safer_aligned_realloc( ptr, size, aligment, &func_ptrs );                    \
 }
 
-// Limit is 30 bytes/60 symbols per line, * can be used to match any digit in bytecodes.
-// Purpose of the pattern is to mark an instruction bound, it should consist of several
-// full instructions plus one more byte. It's not required for the patterns to be unique
-// (i.e., it's OK to have same pattern for unrelated functions).
+// Only for ucrtbase: substitution for _o_free
+void (*orig__o_free)(void*);
+void __TBB_malloc__o_free(void *ptr)
+{
+    __TBB_malloc_safer_free( ptr, orig__o_free );
+}
+// Only for ucrtbase: substitution for _free_base
+void(*orig__free_base)(void*);
+void __TBB_malloc__free_base(void *ptr)
+{
+    __TBB_malloc_safer_free(ptr, orig__free_base);
+}
+
+// Size limit is MAX_PATTERN_SIZE (28) byte codes / 56 symbols per line.
+// * can be used to match any digit in byte codes.
+// # followed by several * indicate a relative address that needs to be corrected.
+// Purpose of the pattern is to mark an instruction bound; it should consist of several
+// full instructions plus one extra byte code. It's not required for the patterns
+// to be unique (i.e., it's OK to have same pattern for unrelated functions).
 // TODO: use hot patch prologues if exist
 const char* known_bytecodes[] = {
 #if _WIN64
+//  "========================================================" - 56 symbols
     "4883EC284885C974",       // release free()
     "4883EC284885C975",       // release _msize()
     "4885C974375348",         // release free() 8.0.50727.42, 10.0
@@ -351,15 +375,18 @@ const char* known_bytecodes[] = {
     "C7442410000000008B",     // release free() ucrtbase.dll 10.0.14393.33
     "E90B000000CCCC",         // release _msize() ucrtbase.dll 10.0.14393.33
     "48895C24085748",         // release _aligned_msize() ucrtbase.dll 10.0.14393.33
+    "E903000000CCCC",         // release _aligned_msize() ucrtbase.dll 10.0.16299.522
     "48894C24084883EC28BA",   // debug prologue
     "4C894424184889542410",   // debug _aligned_msize() 10.0
     "48894C24084883EC2848",   // debug _aligned_free 10.0
+    "488BD1488D0D#*******E9", // _o_free(), ucrtbase.dll
  #if __TBB_OVERLOAD_OLD_MSVCR
     "48895C2408574883EC3049", // release _aligned_msize 9.0
     "4883EC384885C975",       // release _msize() 9.0
     "4C8BC1488B0DA6E4040033", // an old win64 SDK
  #endif
 #else // _WIN32
+//  "========================================================" - 56 symbols
     "8BFF558BEC8B",           // multiple
     "8BFF558BEC83",           // release free() & _msize() 10.0.40219.325, _msize() ucrtbase.dll
     "8BFF558BECFF",           // release _aligned_msize ucrtbase.dll
@@ -439,36 +466,36 @@ __TBB_ORIG_ALLOCATOR_REPLACEMENT_WRAPPER(ucrtbase);
 #pragma warning( disable : 4290 )
 #endif
 
-void * operator_new(size_t sz) throw (std::bad_alloc) {
+void * operator_new(size_t sz) __TBB_THROW_BAD_ALLOC {
     void *res = scalable_malloc(sz);
     if (NULL == res) throw std::bad_alloc();
     return res;
 }
-void* operator_new_arr(size_t sz) throw (std::bad_alloc) {
+void* operator_new_arr(size_t sz) __TBB_THROW_BAD_ALLOC {
     void *res = scalable_malloc(sz);
     if (NULL == res) throw std::bad_alloc();
     return res;
 }
-void operator_delete(void* ptr) throw() {
+void operator_delete(void* ptr) __TBB_NO_THROW {
     __TBB_malloc_safer_delete(ptr);
 }
 #if _MSC_VER && !defined(__INTEL_COMPILER)
 #pragma warning( pop )
 #endif
 
-void operator_delete_arr(void* ptr) throw() {
+void operator_delete_arr(void* ptr) __TBB_NO_THROW {
     __TBB_malloc_safer_delete(ptr);
 }
-void* operator_new_t(size_t sz, const std::nothrow_t&) throw() {
+void* operator_new_t(size_t sz, const std::nothrow_t&) __TBB_NO_THROW {
     return scalable_malloc(sz);
 }
-void* operator_new_arr_t(std::size_t sz, const std::nothrow_t&) throw() {
+void* operator_new_arr_t(std::size_t sz, const std::nothrow_t&) __TBB_NO_THROW {
     return scalable_malloc(sz);
 }
-void operator_delete_t(void* ptr, const std::nothrow_t&) throw() {
+void operator_delete_t(void* ptr, const std::nothrow_t&) __TBB_NO_THROW {
     __TBB_malloc_safer_delete(ptr);
 }
-void operator_delete_arr_t(void* ptr, const std::nothrow_t&) throw() {
+void operator_delete_arr_t(void* ptr, const std::nothrow_t&) __TBB_NO_THROW {
     __TBB_malloc_safer_delete(ptr);
 }
 
@@ -641,8 +668,17 @@ void doMallocReplacement()
         {
             ReplaceFunctionWithStore( modules_to_replace[j].name, c_routines_to_replace[i]._func, c_routines_to_replace[i]._fptr, NULL, NULL,  c_routines_to_replace[i]._on_error );
         }
-        // ucrtbase.dll does not export operator new/delete.
-        if ( strcmp(modules_to_replace[j].name, "ucrtbase.dll") == 0 ){
+        if ( strcmp(modules_to_replace[j].name, "ucrtbase.dll") == 0 ) {
+            // If _o_free function is present and patchable, redirect it to tbbmalloc as well
+            // This prevents issues with other _o_* functions which might allocate memory with malloc
+            if ( IsPrologueKnown(GetModuleHandle("ucrtbase.dll"), "_o_free", known_bytecodes) ) {
+                ReplaceFunctionWithStore( "ucrtbase.dll", "_o_free", (FUNCPTR)__TBB_malloc__o_free, known_bytecodes, (FUNCPTR*)&orig__o_free,  FRR_FAIL );
+            }
+            // Similarly for _free_base
+            if (IsPrologueKnown(GetModuleHandle("ucrtbase.dll"), "_free_base", known_bytecodes)) {
+                ReplaceFunctionWithStore("ucrtbase.dll", "_free_base", (FUNCPTR)__TBB_malloc__free_base, known_bytecodes, (FUNCPTR*)&orig__free_base, FRR_FAIL);
+            }
+            // ucrtbase.dll does not export operator new/delete, so skip the rest of the loop.
             continue;
         }
 

@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2017 Intel Corporation
+    Copyright (c) 2005-2018 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -248,17 +248,7 @@ public:
     }
 };
 
-#if !TBB_USE_EXCEPTIONS && _MSC_VER
-    // Suppress "C++ exception handler used, but unwind semantics are not enabled" warning in STL headers
-    #pragma warning (push)
-    #pragma warning (disable: 4530)
-#endif
-
 #include <stdexcept> // std::invalid_argument
-
-#if !TBB_USE_EXCEPTIONS && _MSC_VER
-    #pragma warning (pop)
-#endif
 
 template <typename Flavor, typename T, typename Partitioner>
 void TestParallelForWithStepSupportHelper(Partitioner& p)
@@ -308,7 +298,7 @@ void TestParallelForWithStepSupport()
 #if TBB_USE_EXCEPTIONS && !__TBB_THROW_ACROSS_MODULE_BOUNDARY_BROKEN
     try{
         tbb::parallel_for(static_cast<T>(1), static_cast<T>(100), static_cast<T>(0), TestFunctor<T>());  // should cause std::invalid_argument
-    }catch(std::invalid_argument){
+    }catch(std::invalid_argument&){
         return;
     }
     catch ( ... ) {
@@ -419,8 +409,9 @@ void TestVectorTypes() {
 #endif /* HAVE_m128 || HAVE_m256 */
 
 #include <vector>
-#include <tbb/blocked_range.h>
 #include <sstream>
+#include <tbb/blocked_range.h>
+
 struct TestSimplePartitionerStabilityFunctor:NoAssign{
   std::vector<int> & ranges;
   TestSimplePartitionerStabilityFunctor(std::vector<int> & theRanges):ranges(theRanges){}

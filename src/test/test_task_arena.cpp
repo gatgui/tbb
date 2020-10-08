@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2017 Intel Corporation
+    Copyright (c) 2005-2018 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -18,27 +18,10 @@
 
 */
 
-#if __TBB_CPF_BUILD
-    #define TBB_PREVIEW_TASK_ISOLATION 1
-    // undefine __TBB_CPF_BUILD to simulate user's setup
-    #undef __TBB_CPF_BUILD
-#endif
-
 #define TBB_PREVIEW_LOCAL_OBSERVER 1
 #define __TBB_EXTRA_DEBUG 1
 
-#if !TBB_USE_EXCEPTIONS && _MSC_VER
-    // Suppress "C++ exception handler used, but unwind semantics are not enabled" warning in STL headers
-    #pragma warning (push)
-    #pragma warning (disable: 4530)
-#endif
-
 #include <stdexcept>
-
-#if !TBB_USE_EXCEPTIONS && _MSC_VER
-    #pragma warning (pop)
-#endif
-
 #include <cstdlib>
 #include <cstdio>
 
@@ -65,7 +48,7 @@
 
 #if _MSC_VER
 // plays around __TBB_NO_IMPLICIT_LINKAGE. __TBB_LIB_NAME should be defined (in makefiles)
-    #pragma comment(lib, __TBB_STRING(__TBB_LIB_NAME))
+#pragma comment(lib, __TBB_STRING(__TBB_LIB_NAME))
 #endif
 
 //--------------------------------------------------//
@@ -609,7 +592,7 @@ void ValidateAttachedArena( tbb::task_arena& arena, bool expect_activated,
         ASSERT( validator.concurrency()==expect_concurrency, "Unexpected arena size" );
         ASSERT( validator.reserved_for_masters()==expect_masters, "Unexpected # of reserved slots" );
         if ( tbb::this_task_arena::current_thread_index() != tbb::task_arena::not_initialized ) {
-            ASSERT( tbb::task_arena::current_thread_index() >= 0 && 
+            ASSERT( tbb::task_arena::current_thread_index() >= 0 &&
                 tbb::this_task_arena::current_thread_index() >= 0, NULL);
             // for threads already in arena, check that the thread index remains the same
             arena.execute( validator );
@@ -617,7 +600,7 @@ void ValidateAttachedArena( tbb::task_arena& arena, bool expect_activated,
             // Test the deprecated method
             ASSERT( tbb::task_arena::current_thread_index()==-1, NULL);
         }
-        
+
         // Ideally, there should be a check for having the same internal arena object,
         // but that object is not easily accessible for implicit arenas.
     }
@@ -706,14 +689,14 @@ void TestAttach( int maxthread ) {
 //--------------------------------------------------//
 // Test that task_arena::enqueue does not tolerate a non-const functor.
 // TODO: can it be reworked as SFINAE-based compile-time check?
-struct test_functor_t {
+struct TestFunctor {
     void operator()() { ASSERT( false, "Non-const operator called" ); }
     void operator()() const { /* library requires this overload only */ }
 };
 
 void TestConstantFunctorRequirement() {
     tbb::task_arena a;
-    test_functor_t tf;
+    TestFunctor tf;
     a.enqueue( tf );
 #if __TBB_TASK_PRIORITY
     a.enqueue( tf, tbb::priority_normal );
@@ -722,6 +705,7 @@ void TestConstantFunctorRequirement() {
 //--------------------------------------------------//
 #if __TBB_TASK_ISOLATION
 #include "tbb/parallel_reduce.h"
+#include "tbb/parallel_invoke.h"
 // Test this_task_arena::isolate
 namespace TestIsolatedExecuteNS {
     //--------------------------------------------------//
@@ -798,21 +782,32 @@ namespace TestIsolatedExecuteNS {
         TwoLoopsTest( false );
     }
     //--------------------------------------------------//
-    class HeavyMixTestBody {
+    class HeavyMixTestBody : NoAssign {
         tbb::enumerable_thread_specific<Harness::FastRandom>& myRandom;
         tbb::enumerable_thread_specific<int>& myIsolatedLevel;
         int myNestedLevel;
         bool myHighPriority;
 
+        template <typename Partitioner, typename Body>
+        static void RunTwoBodies( Harness::FastRandom& rnd, const Body &body, Partitioner& p, tbb::task_group_context* ctx = NULL ) {
+            if ( rnd.get() % 2 )
+                if  (ctx )
+                    tbb::parallel_for( 0, 2, body, p, *ctx );
+                else
+                    tbb::parallel_for( 0, 2, body, p );
+            else
+                tbb::parallel_invoke( body, body );
+        }
+
         template <typename Partitioner>
-        class IsolatedBody {
+        class IsolatedBody : NoAssign {
             const HeavyMixTestBody &myHeavyMixTestBody;
             Partitioner &myPartitioner;
         public:
             IsolatedBody( const HeavyMixTestBody &body, Partitioner &partitioner )
                 : myHeavyMixTestBody( body ), myPartitioner( partitioner ) {}
             void operator()() const {
-                tbb::parallel_for( 0, 2,
+                RunTwoBodies( myHeavyMixTestBody.myRandom.local(),
                     HeavyMixTestBody( myHeavyMixTestBody.myRandom, myHeavyMixTestBody.myIsolatedLevel,
                         myHeavyMixTestBody.myNestedLevel + 1, myHeavyMixTestBody.myHighPriority ),
                     myPartitioner );
@@ -828,14 +823,14 @@ namespace TestIsolatedExecuteNS {
                     tbb::task_group_context ctx;
                     if ( myHighPriority )
                         ctx.set_priority( tbb::priority_high );
-                    tbb::parallel_for( 0, 2, HeavyMixTestBody( myRandom, myIsolatedLevel, myNestedLevel + 1, myHighPriority ), p, ctx );
+                    RunTwoBodies( rnd, HeavyMixTestBody(myRandom, myIsolatedLevel, myNestedLevel + 1, myHighPriority), p, &ctx );
                     break;
                 }
                 case 1: {
                     // High priority
                     tbb::task_group_context ctx;
                     ctx.set_priority( tbb::priority_high );
-                    tbb::parallel_for( 0, 2, HeavyMixTestBody( myRandom, myIsolatedLevel, myNestedLevel + 1, true ), p, ctx );
+                    RunTwoBodies( rnd, HeavyMixTestBody(myRandom, myIsolatedLevel, myNestedLevel + 1, true), p, &ctx );
                     break;
                 }
                 case 2: {
@@ -849,11 +844,11 @@ namespace TestIsolatedExecuteNS {
             }
         }
     public:
-        HeavyMixTestBody( tbb::enumerable_thread_specific<Harness::FastRandom>& random, 
+        HeavyMixTestBody( tbb::enumerable_thread_specific<Harness::FastRandom>& random,
             tbb::enumerable_thread_specific<int>& isolated_level, int nested_level, bool high_priority )
             : myRandom( random ), myIsolatedLevel( isolated_level )
             , myNestedLevel( nested_level ), myHighPriority( high_priority ) {}
-        void operator()( int ) const {
+        void operator()() const {
             int &isolated_level = myIsolatedLevel.local();
             ASSERT( myNestedLevel > isolated_level, "The outer-level task should not be stolen on isolated level" );
             if ( myNestedLevel == 20 )
@@ -864,6 +859,9 @@ namespace TestIsolatedExecuteNS {
             } else {
                 RunNextLevel<tbb::affinity_partitioner>( rnd, isolated_level );
             }
+        }
+        void operator()(int) const {
+            this->operator()();
         }
     };
 
@@ -946,7 +944,7 @@ namespace TestIsolatedExecuteNS {
             int &e = myEts.local();
             if ( e++ > 0 ) myIsStolen = true;
             // work imbalance increases chances for stealing
-            tbb::parallel_for( 0, 10+i, Harness::DummyBody( 10 ) );
+            tbb::parallel_for( 0, 10+i, Harness::DummyBody( 100 ) );
             --e;
         }
     };
@@ -963,6 +961,20 @@ namespace TestIsolatedExecuteNS {
         }
         ASSERT( is_stolen, "isolate should not affect non-isolated work" );
 #endif /* TBB_USE_EXCEPTIONS */
+    }
+
+    struct NonConstBody {
+        unsigned int state;
+        void operator()() {
+            state ^= ~0u;
+        }
+    };
+
+    void TestNonConstBody() {
+        NonConstBody body;
+        body.state = 0x6c97d5ed;
+        tbb::this_task_arena::isolate(body);
+        ASSERT(body.state == 0x93682a12, "The wrong state");
     }
 }
 
@@ -982,6 +994,7 @@ void TestIsolatedExecute() {
     tbb::task_scheduler_init init(num_threads);
     TestIsolatedExecuteNS::HeavyMixTest();
     TestIsolatedExecuteNS::ContinuationTest();
+    TestIsolatedExecuteNS::TestNonConstBody();
 }
 #endif /* __TBB_TASK_ISOLATION */
 //--------------------------------------------------//
@@ -1041,7 +1054,7 @@ void TestDelegatedSpawnWait() {
     a.debug_wait_until_empty();
 }
 
-class TestMultipleWaitsArenaWait {
+class TestMultipleWaitsArenaWait : NoAssign {
 public:
     TestMultipleWaitsArenaWait( int idx, int bunch_size, int num_tasks, tbb::task** waiters, tbb::atomic<int>& processed )
         : my_idx( idx ), my_bunch_size( bunch_size ), my_num_tasks(num_tasks), my_waiters( waiters ), my_processed( processed ) {}
@@ -1062,7 +1075,7 @@ private:
     tbb::atomic<int>& my_processed;
 };
 
-class TestMultipleWaitsThreadBody {
+class TestMultipleWaitsThreadBody : NoAssign {
 public:
     TestMultipleWaitsThreadBody( int bunch_size, int num_tasks, tbb::task_arena& a, tbb::task** waiters, tbb::atomic<int>& processed )
         : my_bunch_size( bunch_size ), my_num_tasks( num_tasks ), my_arena( a ), my_waiters( waiters ), my_processed( processed ) {}
@@ -1139,6 +1152,185 @@ void TestSmallStackSize() {
     }
 }
 //--------------------------------------------------//
+#if __TBB_CPP11_RVALUE_REF_PRESENT
+namespace TestMoveSemanticsNS {
+    struct TestFunctor {
+        void operator()() const {};
+    };
+
+    struct MoveOnlyFunctor : MoveOnly, TestFunctor {
+        MoveOnlyFunctor() : MoveOnly() {};
+        MoveOnlyFunctor(MoveOnlyFunctor&& other) : MoveOnly(std::move(other)) {};
+    };
+
+    struct MovePreferableFunctor : Movable, TestFunctor {
+        MovePreferableFunctor() : Movable() {};
+        MovePreferableFunctor(MovePreferableFunctor&& other) : Movable( std::move(other) ) {};
+        MovePreferableFunctor(const MovePreferableFunctor& other) : Movable(other) {};
+    };
+
+    struct NoMoveNoCopyFunctor : NoCopy, TestFunctor {
+        NoMoveNoCopyFunctor() : NoCopy() {};
+        // mv ctor is not allowed as cp ctor from parent NoCopy
+    private:
+        NoMoveNoCopyFunctor(NoMoveNoCopyFunctor&&);
+    };
+
+
+    void TestFunctors() {
+        tbb::task_arena ta;
+        MovePreferableFunctor mpf;
+        // execute() doesn't have any copies or moves of arguments inside the impl
+        ta.execute( NoMoveNoCopyFunctor() );
+
+        ta.enqueue( MoveOnlyFunctor() );
+        ta.enqueue( mpf );
+        ASSERT(mpf.alive, "object was moved when was passed by lval");
+        mpf.Reset();
+        ta.enqueue( std::move(mpf) );
+        ASSERT(!mpf.alive, "object was copied when was passed by rval");
+        mpf.Reset();
+#if __TBB_TASK_PRIORITY
+        ta.enqueue( MoveOnlyFunctor(), tbb::priority_normal );
+        ta.enqueue( mpf, tbb::priority_normal );
+        ASSERT(mpf.alive, "object was moved when was passed by lval");
+        mpf.Reset();
+        ta.enqueue( std::move(mpf), tbb::priority_normal );
+        ASSERT(!mpf.alive, "object was copied when was passed by rval");
+        mpf.Reset();
+#endif
+    }
+}
+#endif /* __TBB_CPP11_RVALUE_REF_PRESENT */
+
+void TestMoveSemantics() {
+#if __TBB_CPP11_RVALUE_REF_PRESENT
+    TestMoveSemanticsNS::TestFunctors();
+#else
+    REPORT("Known issue: move support tests are skipped.\n");
+#endif
+}
+//--------------------------------------------------//
+#if __TBB_CPP11_DECLTYPE_PRESENT && !__TBB_CPP11_DECLTYPE_OF_FUNCTION_RETURN_TYPE_BROKEN
+#include <vector>
+#include "harness_state_trackable.h"
+
+namespace TestReturnValueNS {
+    struct noDefaultTag {};
+    class ReturnType : public Harness::StateTrackable<> {
+        static const int SIZE = 42;
+        std::vector<int> data;
+    public:
+        ReturnType(noDefaultTag) : Harness::StateTrackable<>(0) {}
+#if !__TBB_IMPLICIT_MOVE_PRESENT
+        // Define copy constructor to test that it is never called
+        ReturnType(const ReturnType& r) : Harness::StateTrackable<>(r), data(r.data) {}
+        ReturnType(ReturnType&& r) : Harness::StateTrackable<>(std::move(r)), data(std::move(r.data)) {}
+#endif
+        void fill() {
+            for (int i = 0; i < SIZE; ++i)
+                data.push_back(i);
+        }
+        void check() {
+            ASSERT(data.size() == unsigned(SIZE), NULL);
+            for (int i = 0; i < SIZE; ++i)
+                ASSERT(data[i] == i, NULL);
+            Harness::StateTrackableCounters::counters_t& cnts = Harness::StateTrackableCounters::counters;
+            ASSERT((cnts[Harness::StateTrackableBase::DefaultInitialized] == 0), NULL);
+            ASSERT(cnts[Harness::StateTrackableBase::DirectInitialized] == 1, NULL);
+            std::size_t copied = cnts[Harness::StateTrackableBase::CopyInitialized];
+            std::size_t moved = cnts[Harness::StateTrackableBase::MoveInitialized];
+            ASSERT(cnts[Harness::StateTrackableBase::Destroyed] == copied + moved, NULL);
+            // The number of copies/moves should not exceed 3: function return, store to an internal storage,
+            // acquire internal storage.
+#if __TBB_CPP11_RVALUE_REF_PRESENT
+            ASSERT(copied == 0 && moved <=3, NULL);
+#else
+            ASSERT(copied <= 3 && moved == 0, NULL);
+#endif
+        }
+    };
+
+    template <typename R>
+    R function() {
+        noDefaultTag tag;
+        R r(tag);
+        r.fill();
+        return r;
+    }
+
+    template <>
+    void function<void>() {}
+
+    template <typename R>
+    struct Functor {
+        R operator()() const {
+            return function<R>();
+        }
+    };
+
+    tbb::task_arena& arena() {
+        static tbb::task_arena a;
+        return a;
+    }
+
+    template <typename F>
+    void TestExecute(F &f) {
+        Harness::StateTrackableCounters::reset();
+        ReturnType r = arena().execute(f);
+        r.check();
+    }
+
+    template <typename F>
+    void TestExecute(const F &f) {
+        Harness::StateTrackableCounters::reset();
+        ReturnType r = arena().execute(f);
+        r.check();
+    }
+#if TBB_PREVIEW_TASK_ISOLATION
+    template <typename F>
+    void TestIsolate(F &f) {
+        Harness::StateTrackableCounters::reset();
+        ReturnType r = tbb::this_task_arena::isolate(f);
+        r.check();
+    }
+
+    template <typename F>
+    void TestIsolate(const F &f) {
+        Harness::StateTrackableCounters::reset();
+        ReturnType r = tbb::this_task_arena::isolate(f);
+        r.check();
+    }
+#endif
+
+    void Test() {
+        TestExecute(Functor<ReturnType>());
+        Functor<ReturnType> f1;
+        TestExecute(f1);
+        TestExecute(function<ReturnType>);
+
+        arena().execute(Functor<void>());
+        Functor<void> f2;
+        arena().execute(f2);
+        arena().execute(function<void>);
+#if TBB_PREVIEW_TASK_ISOLATION
+        TestIsolate(Functor<ReturnType>());
+        TestIsolate(f1);
+        TestIsolate(function<ReturnType>);
+        tbb::this_task_arena::isolate(Functor<void>());
+        tbb::this_task_arena::isolate(f2);
+        tbb::this_task_arena::isolate(function<void>);
+#endif
+    }
+}
+#endif /* __TBB_CPP11_DECLTYPE_PRESENT */
+
+void TestReturnValue() {
+#if __TBB_CPP11_DECLTYPE_PRESENT && !__TBB_CPP11_DECLTYPE_OF_FUNCTION_RETURN_TYPE_BROKEN
+    TestReturnValueNS::Test();
+#endif
+}
+//--------------------------------------------------//
 void TestConcurrentFunctionality(int min_thread_num = MinThread, int max_thread_num = MaxThread) {
     InitializeAndTerminate(max_thread_num);
     for (int p = min_thread_num; p <= max_thread_num; ++p) {
@@ -1211,5 +1403,8 @@ int TestMain () {
     TestConstantFunctorRequirement();
     TestDelegatedSpawnWait();
     TestMultipleWaits();
+    TestMoveSemantics();
+    TestReturnValue();
     return Harness::Done;
 }
+

@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2017 Intel Corporation
+    Copyright (c) 2005-2018 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@
 // Hence we include a few other headers before doing the abusive edit.
 #include "tbb/tbb_stddef.h" /* Defines runtime_warning */
 #include "harness_assert.h" /* Prerequisite for defining hooked_warning */
-#include "test_container_move_support.h"
 
 // The symbol internal::runtime_warning is normally an entry point into the TBB library.
 // Here for sake of testing, we define it to be hooked_warning, a routine peculiar to this unit test.
@@ -209,8 +208,6 @@ typedef local_counting_allocator<std::allocator<MyData> > MyAllocator;
 typedef tbb::concurrent_hash_map<MyKey,MyData,MyHashCompare,MyAllocator> MyTable;
 typedef tbb::concurrent_hash_map<MyKey,MyData2,MyHashCompare> MyTable2;
 typedef tbb::concurrent_hash_map<MyKey,MyData,YourHashCompare> YourTable;
-typedef tbb::concurrent_hash_map<MyKey,MyData,MyHashCompare,MyAllocator> MyTable;
-typedef tbb::concurrent_hash_map<MyKey,Foo,MyHashCompare> DataStateTrackedTable;
 
 template<typename MyTable>
 inline void CheckAllocator(MyTable &table, size_t expected_allocs, size_t expected_frees, bool exact = true) {
@@ -256,6 +253,9 @@ struct Insert {
 };
 
 #if __TBB_CPP11_RVALUE_REF_PRESENT
+#include "test_container_move_support.h"
+typedef tbb::concurrent_hash_map<MyKey,Foo,MyHashCompare> DataStateTrackedTable;
+
 struct RvalueInsert {
     static void apply( DataStateTrackedTable& table, int i ) {
         DataStateTrackedTable::accessor a;
@@ -508,13 +508,13 @@ void ParallelTraverseTable( MyTable& table, size_t n, size_t expected_size ) {
     ASSERT( table.size()==expected_size, NULL );
     AtomicByte* array = new AtomicByte[n];
 
-    memset( array, 0, n*sizeof(AtomicByte) );
+    memset( static_cast<void*>(array), 0, n*sizeof(AtomicByte) );
     MyTable::range_type r = table.range(10);
     tbb::parallel_for( r, ParallelTraverseBody<MyTable::range_type>( array, n ));
     Check( array, n, expected_size );
 
     const MyTable& const_table = table;
-    memset( array, 0, n*sizeof(AtomicByte) );
+    memset( static_cast<void*>(array), 0, n*sizeof(AtomicByte) );
     MyTable::const_range_type cr = const_table.range(10);
     tbb::parallel_for( cr, ParallelTraverseBody<MyTable::const_range_type>( array, n ));
     Check( array, n, expected_size );
@@ -930,6 +930,7 @@ void TestExceptions() {
                     ASSERT( MyDataCount==100, "data leak?" );
                     ASSERT( size>=100, NULL );
                     CheckAllocator(victim, 100+t, t);
+                    /* Falls through. */
                 case ctor_copy:
                     CheckTable(src, 1000);
                     break;
@@ -1034,6 +1035,9 @@ public:
 #include <vector>
 #include <list>
 #include <algorithm>
+#if __TBB_CPP11_REFERENCE_WRAPPER_PRESENT
+#include <functional>
+#endif
 
 template <typename Table, typename Iterator, typename Range = typename Table::range_type>
 class test_range : NoAssign {
@@ -1307,7 +1311,6 @@ void TestCPP11Types() {
 }
 
 #if __TBB_CPP11_RVALUE_REF_PRESENT
-#include "test_container_move_support.h"
 
 struct hash_map_move_traits : default_container_traits {
     enum{ expected_number_of_items_to_allocate_for_steal_move = 0 };

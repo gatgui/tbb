@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2017 Intel Corporation
+    Copyright (c) 2005-2018 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -146,13 +146,13 @@ void TestInitList( std::initializer_list<typename Table::value_type> il ) {
 }
 #endif //if __TBB_INITIALIZER_LISTS_PRESENT
 
-template<Harness::StateTrackableBase::State desired_state, typename T>
+template<Harness::StateTrackableBase::StateValue desired_state, typename T>
 void check_value_state(/* typename do_check_element_state =*/ tbb::internal::true_type, T const& t, const char* filename, int line )
 {
     ASSERT_CUSTOM(is_state_f<desired_state>()(t), "", filename, line);
 }
 
-template<Harness::StateTrackableBase::State desired_state, typename T>
+template<Harness::StateTrackableBase::StateValue desired_state, typename T>
 void check_value_state(/* typename do_check_element_state =*/ tbb::internal::false_type, T const&, const char* , int ) {/*do nothing*/}
 #define ASSERT_VALUE_STATE(do_check_element_state,state,value) check_value_state<state>(do_check_element_state,value,__FILE__,__LINE__)
 
@@ -635,7 +635,7 @@ void test_concurrent(const char *tablename, bool asymptotic = false) {
 
     if(!asymptotic) {
         AtomicByte* array = new AtomicByte[items];
-        memset( array, 0, items*sizeof(AtomicByte) );
+        memset( static_cast<void*>(array), 0, items*sizeof(AtomicByte) );
 
         typename T::range_type r = table.range();
         std::pair<intptr_t,intptr_t> p = CheckRecursiveRange<T,typename T::iterator>(r);
@@ -644,7 +644,7 @@ void test_concurrent(const char *tablename, bool asymptotic = false) {
         CheckRange( array, items, T::allow_multimapping, (nThreads - 1)/2 );
 
         const T &const_table = table;
-        memset( array, 0, items*sizeof(AtomicByte) );
+        memset( static_cast<void*>(array), 0, items*sizeof(AtomicByte) );
         typename T::const_range_type cr = const_table.range();
         ASSERT((nItemsInserted == CheckRecursiveRange<T,typename T::const_iterator>(cr).first), NULL);
         tbb::parallel_for( cr, ParallelTraverseBody<T, typename T::const_range_type>( array, items ));

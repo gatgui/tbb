@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2017 Intel Corporation
+    Copyright (c) 2005-2018 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -241,8 +241,8 @@ template<> struct atomic_selector<8> {
         #include "machine/linux_ia64.h"
     #elif __powerpc__
         #include "machine/mac_ppc.h"
-    #elif __ARM_ARCH_7A__
-        #include "machine/gcc_armv7.h"
+    #elif __ARM_ARCH_7A__ || __aarch64__
+        #include "machine/gcc_arm.h"
     #elif __TBB_GCC_BUILTIN_ATOMICS_PRESENT
         #include "machine/gcc_generic.h"
     #endif
@@ -663,7 +663,15 @@ struct machine_load_store_seq_cst<T,8> {
         return __TBB_machine_cmpswp8( (volatile void*)const_cast<volatile T*>(&location), anyvalue, anyvalue );
     }
     static void store ( volatile T &location, T value ) {
+#if __TBB_GCC_VERSION >= 40702
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+        // An atomic initialization leads to reading of uninitialized memory
         int64_t result = (volatile int64_t&)location;
+#if __TBB_GCC_VERSION >= 40702
+#pragma GCC diagnostic pop
+#endif
         while ( __TBB_machine_cmpswp8((volatile void*)&location, (int64_t)value, result) != result )
             result = (volatile int64_t&)location;
     }
