@@ -84,3 +84,10 @@ CMakeFiles/
 .svn
 crash*
 *.tmp
+
+
+/.build
+/release
+/debug
+/*.dblite
+/tbb.cmake.*
