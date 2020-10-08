@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2018 Intel Corporation
+    Copyright (c) 2005-2019 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -12,10 +12,6 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
-
-
-
-
 */
 
 #if (_MSC_VER)
@@ -37,8 +33,6 @@
     // Workaround for overzealous compiler warnings in /Wp64 mode
     #pragma warning (disable: 4267)
 #endif
-
-using namespace std;
 
 namespace tbb {
 
@@ -337,11 +331,9 @@ concurrent_vector_base_v3::size_type concurrent_vector_base_v3::internal_capacit
 }
 
 void concurrent_vector_base_v3::internal_throw_exception(size_type t) const {
-    switch(t) {
-        case 0: throw_exception(eid_out_of_range);
-        case 1: throw_exception(eid_segment_range_error);
-        case 2: throw_exception(eid_index_range_error);
-    }
+    exception_id ids[] = { eid_out_of_range, eid_segment_range_error, eid_index_range_error };
+    __TBB_ASSERT(t < sizeof(ids) / sizeof(exception_id), NULL);
+    throw_exception(ids[t]);
 }
 
 void concurrent_vector_base_v3::internal_reserve( size_type n, size_type element_size, size_type max_size ) {

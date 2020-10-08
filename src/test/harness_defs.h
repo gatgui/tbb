@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2018 Intel Corporation
+    Copyright (c) 2005-2019 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -12,10 +12,6 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
-
-
-
-
 */
 
 #ifndef __TBB_harness_defs_H
@@ -66,6 +62,7 @@
   #define __TBB_CPP11_REFERENCE_WRAPPER_PRESENT ( __GXX_EXPERIMENTAL_CXX0X__ && __TBB_GCC_VERSION >= 40400 )
   #define __TBB_RANGE_BASED_FOR_PRESENT ( __GXX_EXPERIMENTAL_CXX0X__ && __TBB_GCC_VERSION >= 40500 )
   #define __TBB_SCOPED_ENUM_PRESENT ( __GXX_EXPERIMENTAL_CXX0X__ && __TBB_GCC_VERSION >= 40400 )
+  #define __TBB_GCC_WARNING_IGNORED_ATTRIBUTES_PRESENT (__TBB_GCC_VERSION >= 60100)
 #elif _MSC_VER
   #define __TBB_CPP11_REFERENCE_WRAPPER_PRESENT ( _MSC_VER >= 1600 )
   #define __TBB_RANGE_BASED_FOR_PRESENT ( _MSC_VER >= 1700 )
@@ -105,8 +102,8 @@
 
 // Unable to use constexpr member functions to initialize compile time constants
 #define __TBB_CONSTEXPR_MEMBER_FUNCTION_BROKEN (__INTEL_COMPILER == 1500)
-// MSVC 2015 does not do compile-time initialization of static variables with constexpr constructors in debug mode
-#define __TBB_STATIC_CONSTEXPR_INIT_BROKEN (_MSC_VER==1900 && !__INTEL_COMPILER && _DEBUG)
+// Some versions of MSVC do not do compile-time initialization of static variables with constexpr constructors in debug mode
+#define __TBB_STATIC_CONSTEXPR_INIT_BROKEN (_MSC_VER >= 1900 && _MSC_VER <= 1914 && !__INTEL_COMPILER && _DEBUG)
 
 #if __GNUC__ && __ANDROID__
   #define __TBB_EXCEPTION_TYPE_INFO_BROKEN ( __TBB_GCC_VERSION < 40600 )
@@ -148,7 +145,26 @@
 
 // Intel C++ Compiler fails to generate non-throwing move members for a class inherited from template
 #define __TBB_NOTHROW_MOVE_MEMBERS_IMPLICIT_GENERATION_BROKEN \
-    (__INTEL_COMPILER>=1600 && __INTEL_COMPILER<=1800 || __INTEL_COMPILER==1500 && __INTEL_COMPILER_UPDATE>3)
+    (__INTEL_COMPILER>=1600 && __INTEL_COMPILER<=1900 || __INTEL_COMPILER==1500 && __INTEL_COMPILER_UPDATE>3)
+
+// std::is_copy_constructible<T>::value returns 'true' for non copyable type when MSVC compiler is used.
+#define __TBB_IS_COPY_CONSTRUCTIBLE_BROKEN ( _MSC_VER && (_MSC_VER <= 1700 || _MSC_VER <= 1800 && !__INTEL_COMPILER) )
+
+// GCC 4.7 and 4.8 might fail to take an address of overloaded template function (bug 57043)
+#if __GNUC__ && !__INTEL_COMPILER && !__clang__
+  #define __TBB_GCC_OVERLOADED_TEMPLATE_FUNCTION_ADDRESS_BROKEN \
+    (__TBB_GCC_VERSION>=40700 && __TBB_GCC_VERSION<40704 || __TBB_GCC_VERSION>=40800 && __TBB_GCC_VERSION<40803 )
+#endif
+
+// Swapping of scoped_allocator_adaptors is broken on GCC 4.9 and lower and on Android for Windows
+// Allocator propagation into std::pair is broken for Apple clang, lower then 9.0
+// Compilation of <scoped_allocator> header is broken for Visual Studio 2017 with ICC 17.8
+#define __TBB_SCOPED_ALLOCATOR_BROKEN (__TBB_GCC_VERSION <= 50100 || (__APPLE__ && __TBB_CLANG_VERSION < 90000) || \
+                                      (__FreeBSD__ && __TBB_CLANG_VERSION <= 60000) ||  \
+                                      (__ANDROID__ && (_WIN32 || _WIN64)) || \
+                                      (_MSC_VER && _MSC_VER == 1912 && __INTEL_COMPILER == 1700))
+
+
 
 // The tuple-based tests with more inputs take a long time to compile.  If changes
 // are made to the tuple implementation or any switch that controls it, or if testing
@@ -179,18 +195,16 @@
     #ifndef  TBB_PREVIEW_FLOW_GRAPH_FEATURES
         #define TBB_PREVIEW_FLOW_GRAPH_FEATURES 1
     #endif
-    #if __TBB_ITT_STRUCTURE_API
-        #ifndef TBB_PREVIEW_FLOW_GRAPH_TRACE
-            #define TBB_PREVIEW_FLOW_GRAPH_TRACE 1
-        #endif
-        #ifndef TBB_PREVIEW_ALGORITHM_TRACE
-            #define TBB_PREVIEW_ALGORITHM_TRACE 1
-        #endif
+    #ifndef TBB_PREVIEW_FLOW_GRAPH_TRACE
+        #define TBB_PREVIEW_FLOW_GRAPH_TRACE 1
+    #endif
+    #ifndef TBB_PREVIEW_ALGORITHM_TRACE
+        #define TBB_PREVIEW_ALGORITHM_TRACE 1
+    #endif
+    #ifndef TBB_DEPRECATED_LIMITER_NODE_CONSTRUCTOR
+        #define TBB_DEPRECATED_LIMITER_NODE_CONSTRUCTOR 1
     #endif
 #endif
-
-// std::is_copy_constructible<T>::value returns 'true' for non copyable type when MSVC compiler is used.
-#define __TBB_IS_COPY_CONSTRUCTIBLE_BROKEN ( _MSC_VER && (_MSC_VER <= 1700 || _MSC_VER <= 1800 && !__INTEL_COMPILER) )
 
 namespace Harness {
     //! Utility template function to prevent "unused" warnings by various compilers.

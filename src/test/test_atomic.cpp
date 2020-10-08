@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2018 Intel Corporation
+    Copyright (c) 2005-2019 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -12,10 +12,6 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
-
-
-
-
 */
 
 #include "harness_defs.h"
@@ -1132,8 +1128,7 @@ public:
         ASSERT( raw_space<=reinterpret_cast<char*>(y), "y starts before raw_space" );
         ASSERT( reinterpret_cast<char*>(y+1) <= raw_space+sizeof(raw_space), "y starts after raw_space" );
         ASSERT( !(aligned ^ tbb::internal::is_aligned(y,sizeof(T))), "y is not aligned as it required" );
-        new (y) tbb::atomic<T> ();
-        return *y;
+        return *(new (y) tbb::atomic<T>());
     }
 };
 

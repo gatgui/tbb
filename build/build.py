@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (c) 2017-2018 Intel Corporation
+# Copyright (c) 2017-2019 Intel Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-#
-#
-#
 
 # Provides unified tool for preparing TBB for packaging
 
@@ -40,19 +36,20 @@ if is_win:
     default_prefix = jp(default_prefix, 'Library') # conda-specific by default on Windows
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--tbbroot',       default='.', help='Take Intel TBB from here')
-parser.add_argument('--prefix',        default=default_prefix, help='Prefix')
-parser.add_argument('--prebuilt',      default=[],    action='append', help='Directories to find prebuilt files')
-parser.add_argument('--no-rebuild',    default=False, action='store_true', help='do not rebuild')
-parser.add_argument('--install',       default=False, action='store_true', help='install all')
-parser.add_argument('--install-libs',  default=False, action='store_true', help='install libs')
-parser.add_argument('--install-devel', default=False, action='store_true', help='install devel')
-parser.add_argument('--install-docs',  default=False, action='store_true', help='install docs')
-parser.add_argument('--install-python',default=False, action='store_true', help='install python module')
-parser.add_argument('--make-tool',     default='make', help='Use different make command instead')
-parser.add_argument('--copy-tool',     default=None, help='Use this command for copying ($ tool file dest-dir)')
-parser.add_argument('--build-args',    default="", help='specify extra build args')
-parser.add_argument('--build-prefix',  default='local', help='build dir prefix')
+parser.add_argument('--tbbroot',        default='.', help='Take Intel TBB from here')
+parser.add_argument('--prefix',         default=default_prefix, help='Prefix')
+parser.add_argument('--prebuilt',       default=[],    action='append', help='Directories to find prebuilt files')
+parser.add_argument('--no-rebuild',     default=False, action='store_true', help='do not rebuild')
+parser.add_argument('--install',        default=False, action='store_true', help='install all')
+parser.add_argument('--install-libs',   default=False, action='store_true', help='install libs')
+parser.add_argument('--install-devel',  default=False, action='store_true', help='install devel')
+parser.add_argument('--install-docs',   default=False, action='store_true', help='install docs')
+parser.add_argument('--install-python', default=False, action='store_true', help='install python module')
+parser.add_argument('--make-tool',      default='make', help='Use different make command instead')
+parser.add_argument('--copy-tool',      default=None, help='Use this command for copying ($ tool file dest-dir)')
+parser.add_argument('--build-args',     default="", help='specify extra build args')
+parser.add_argument('--build-prefix',   default='local', help='build dir prefix')
+parser.add_argument('--cmake-dir',      help='directory to install CMake configuration files. Default: <prefix>/lib/cmake/tbb')
 if is_win:
     parser.add_argument('--msbuild',   default=False, action='store_true', help='Use msbuild')
     parser.add_argument('--vs',          default="2012", help='select VS version for build')
@@ -75,12 +72,14 @@ if args.copy_tool:
 else:
     install_cp = shutil.copy
 
-bin_dir = jp(args.prefix, "bin")
-lib_dir = jp(args.prefix, "lib")
-inc_dir = jp(args.prefix, 'include')
-doc_dir = jp(args.prefix, 'share', 'doc', 'tbb')
+bin_dir   = jp(args.prefix, "bin")
+lib_dir   = jp(args.prefix, "lib")
+inc_dir   = jp(args.prefix, 'include')
+doc_dir   = jp(args.prefix, 'share', 'doc', 'tbb')
+cmake_dir = jp(args.prefix, "lib", "cmake", "tbb") if args.cmake_dir is None else args.cmake_dir
+
 if is_win:
-    os.environ["OS"] = "Windows_NT" # make sure TBB will interpret it corretly
+    os.environ["OS"] = "Windows_NT" # make sure TBB will interpret it correctly
     libext = '.dll'
     libpref = ''
     dll_dir = bin_dir
@@ -93,10 +92,14 @@ tbb_names = ["tbb", "tbbmalloc", "tbbmalloc_proxy"]
 
 ##############################################################
 
+def system(arg):
+    print('$ ', arg)
+    return os.system(arg)
+
 def run_make(arg):
-    if os.system('%s -j %s'% (args.make_tool, arg)) != 0:
+    if system('%s -j %s'% (args.make_tool, arg)) != 0:
        print("\nBummer. Running serial build in order to recover the log and have a chance to fix the build")
-       assert os.system('%s %s'% (args.make_tool, arg)) == 0
+       assert system('%s %s'% (args.make_tool, arg)) == 0
 
 os.chdir(args.tbbroot)
 if args.prebuilt:
@@ -151,6 +154,18 @@ if args.install_devel:
         files = [f for f in filenames if not '.html' in f]
         append_files(files, jp(inc_dir, rootdir.split('include')[1][1:]), paths=(rootdir,))
 
+    # Preparing CMake configuration files
+    cmake_build_dir = jp(args.tbbroot, 'build', args.build_prefix+'_release', 'cmake_configs')
+    assert system('cmake -DINSTALL_DIR=%s -DSYSTEM_NAME=%s -DTBB_VERSION_FILE=%s -DINC_REL_PATH=%s -DLIB_REL_PATH=%s -DBIN_REL_PATH=%s -P %s' % \
+                  (cmake_build_dir,
+                   platform.system(),
+                   jp(args.tbbroot, 'include', 'tbb', 'tbb_stddef.h'),
+                   os.path.relpath(inc_dir, cmake_dir),
+                   os.path.relpath(lib_dir, cmake_dir),
+                   os.path.relpath(bin_dir, cmake_dir),
+                   jp(args.tbbroot, 'cmake', 'tbb_config_installer.cmake'))) == 0
+    append_files(['TBBConfig.cmake', 'TBBConfigVersion.cmake'], cmake_dir, paths=[cmake_build_dir])
+
 if args.install_python: # RML part
     irml_dir = jp(args.tbbroot, 'build', args.build_prefix+'_release')
     run_make('-C src tbb_build_prefix=%s %s python_rml'% (args.build_prefix, args.build_args))
@@ -180,10 +195,10 @@ for f, dest in filemap.items():
     install_cp(f, dest)
 
 if args.install_python: # Python part
-    paths = [os.path.abspath(d) for d in (args.prefix, irml_dir, lib_dir, inc_dir)]
+    paths = [os.path.abspath(d) for d in [args.prefix, inc_dir, irml_dir, lib_dir]+release_dirs]
     os.environ["TBBROOT"] = paths[0]
     # all the paths must be relative to python/ directory or be absolute
-    assert os.system('python python/setup.py build -b%s build_ext -L%s:%s -I%s install -f'% \
-        (paths[1], paths[2], paths[1], paths[3])) == 0 # add install location? windows needs pythnon/Library location separation
+    assert system('python python/setup.py build -b%s build_ext -I%s -L%s install -f'% \
+        (paths[2], paths[1], ':'.join(paths[2:]))) == 0
 
 print("done")

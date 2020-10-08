@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2018 Intel Corporation
+    Copyright (c) 2005-2019 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -12,10 +12,6 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
-
-
-
-
 */
 
 #if _USRDLL
@@ -155,10 +151,10 @@ struct Run {
             REPORT("Can't load " MALLOCLIB_NAME1 " or " MALLOCLIB_NAME2 "\n");
             exit(1);
         }
-        (FunctionAddress&)malloc_ptr = GetAddress(lib, "scalable_malloc");
-        (FunctionAddress&)free_ptr = GetAddress(lib, "scalable_free");
-        (FunctionAddress&)aligned_malloc_ptr = GetAddress(lib, "scalable_aligned_malloc");
-        (FunctionAddress&)aligned_free_ptr = GetAddress(lib, "scalable_aligned_free");
+        GetAddress(lib, "scalable_malloc", malloc_ptr);
+        GetAddress(lib, "scalable_free", free_ptr);
+        GetAddress(lib, "scalable_aligned_malloc", aligned_malloc_ptr);
+        GetAddress(lib, "scalable_aligned_free", aligned_free_ptr);
 
         for (size_t sz = 1024; sz <= 10*1024 ; sz*=10) {
             void *p1 = aligned_malloc_ptr(sz, 16);

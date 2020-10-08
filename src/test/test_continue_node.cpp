@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2018 Intel Corporation
+    Copyright (c) 2005-2019 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -12,16 +12,18 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
-
-
-
-
 */
 
+#if __TBB_CPF_BUILD
+#define TBB_DEPRECATED_FLOW_NODE_EXTRACTION 1
+#endif
+
+#include "harness.h"
 #include "harness_graph.h"
 
 #include "tbb/flow_graph.h"
 #include "tbb/task_scheduler_init.h"
+#include "test_follows_and_precedes_api.h"
 
 #define N 1000
 #define MAX_NODES 4
@@ -40,7 +42,7 @@ struct fake_continue_sender : public tbb::flow::sender<tbb::flow::continue_msg>
     // Define implementations of virtual methods that are abstract in the base class
     bool register_successor( successor_type& ) __TBB_override { return false; }
     bool remove_successor( successor_type& )   __TBB_override { return false; }
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
     typedef tbb::flow::sender<tbb::flow::continue_msg>::built_successors_type built_successors_type;
     built_successors_type bst;
     built_successors_type &built_successors() __TBB_override { return bst; }
@@ -81,7 +83,7 @@ void run_continue_nodes( int p, tbb::flow::graph& g, tbb::flow::continue_node< O
         for (size_t r = 0; r < num_receivers; ++r ) {
             tbb::flow::make_edge( n, receivers[r] );
         }
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
         ASSERT(n.successor_count() == (size_t)num_receivers, NULL);
         ASSERT(n.predecessor_count() == 0, NULL);
         typename tbb::flow::continue_node<OutputType>::successor_list_type my_succs;
@@ -102,7 +104,7 @@ void run_continue_nodes( int p, tbb::flow::graph& g, tbb::flow::continue_node< O
             ASSERT( (int)c == p, NULL );
         }
 
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
         for(sv_iter_type si=my_succs.begin(); si != my_succs.end(); ++si) {
             tbb::flow::remove_edge( n, **si );
         }
@@ -263,7 +265,7 @@ void test_two_graphs(){
     ASSERT(count==0, "Node executed without waiting for all predecessors");
 }
 
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
 void test_extract() {
     int my_count = 0;
     tbb::flow::continue_msg cm;
@@ -362,10 +364,9 @@ void test_extract() {
 }
 #endif
 
-#if __TBB_PREVIEW_LIGHTWEIGHT_POLICY
-struct lightweight_policy_body {
+struct lightweight_policy_body : NoAssign {
     const tbb::tbb_thread::id my_thread_id;
-    tbb::atomic<int> my_count;
+    tbb::atomic<size_t> my_count;
 
     lightweight_policy_body() : my_thread_id(tbb::this_tbb_thread::get_id()) {
         my_count = 0;
@@ -383,7 +384,7 @@ void test_lightweight_policy() {
     tbb::flow::continue_node<tbb::flow::continue_msg, tbb::flow::lightweight> node2(g, lightweight_policy_body());
 
     tbb::flow::make_edge(node1, node2);
-    const int n = 10;
+    const size_t n = 10;
     for(size_t i = 0; i < n; ++i) {
         node1.try_put(tbb::flow::continue_msg());
     }
@@ -391,10 +392,155 @@ void test_lightweight_policy() {
 
     lightweight_policy_body body1 = tbb::flow::copy_body<lightweight_policy_body>(node1);
     lightweight_policy_body body2 = tbb::flow::copy_body<lightweight_policy_body>(node2);
-    ASSERT(int(body1.my_count) == n, "Body of the first node needs to be executed N times");
-    ASSERT(int(body2.my_count) == n, "Body of the second node needs to be executed N times");
+    ASSERT(body1.my_count == n, "Body of the first node needs to be executed N times");
+    ASSERT(body2.my_count == n, "Body of the second node needs to be executed N times");
 }
+
+#if __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+#include <array>
+#include <vector>
+void test_follows_and_precedes_api() {
+    using msg_t = tbb::flow::continue_msg;
+
+    std::array<msg_t, 3> messages_for_follows = { msg_t(), msg_t(), msg_t() };
+    std::vector<msg_t> messages_for_precedes  = { msg_t() };
+
+    auto pass_through = [](const msg_t& msg) { return msg; };
+
+    follows_and_precedes_testing::test_follows
+        <msg_t, tbb::flow::continue_node<msg_t>>
+        (messages_for_follows, pass_through);
+
+    follows_and_precedes_testing::test_precedes
+        <msg_t, tbb::flow::continue_node<msg_t>>
+        (messages_for_precedes, pass_through);
+}
+#endif // __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+
+#if __TBB_CPP17_DEDUCTION_GUIDES_PRESENT
+
+template <typename ExpectedType, typename Body>
+void test_deduction_guides_common(Body body) {
+    using namespace tbb::flow;
+    graph g;
+
+    continue_node c1(g, body);
+    static_assert(std::is_same_v<decltype(c1), continue_node<ExpectedType>>);
+
+    continue_node c2(g, body, lightweight());
+    static_assert(std::is_same_v<decltype(c2), continue_node<ExpectedType, lightweight>>);
+
+    continue_node c3(g, 5, body);
+    static_assert(std::is_same_v<decltype(c3), continue_node<ExpectedType>>);
+
+    continue_node c4(g, 5, body, lightweight());
+    static_assert(std::is_same_v<decltype(c4), continue_node<ExpectedType, lightweight>>);
+
+#if __TBB_PREVIEW_FLOW_GRAPH_PRIORITIES
+    continue_node c5(g, body, node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c5), continue_node<ExpectedType>>);
+
+    continue_node c6(g, body, lightweight(), node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c6), continue_node<ExpectedType, lightweight>>);
+
+    continue_node c7(g, 5, body, node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c7), continue_node<ExpectedType>>);
+
+    continue_node c8(g, 5, body, lightweight(), node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c8), continue_node<ExpectedType, lightweight>>);
 #endif
+
+#if __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+    broadcast_node<continue_msg> b(g);
+
+    continue_node c9(follows(b), body);
+    static_assert(std::is_same_v<decltype(c9), continue_node<ExpectedType>>);
+
+    continue_node c10(follows(b), body, lightweight());
+    static_assert(std::is_same_v<decltype(c10), continue_node<ExpectedType, lightweight>>);
+
+    continue_node c11(follows(b), 5, body);
+    static_assert(std::is_same_v<decltype(c11), continue_node<ExpectedType>>);
+
+    continue_node c12(follows(b), 5, body, lightweight());
+    static_assert(std::is_same_v<decltype(c12), continue_node<ExpectedType, lightweight>>);
+
+#if __TBB_PREVIEW_FLOW_GRAPH_PRIORITIES
+    continue_node c13(follows(b), body, node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c13), continue_node<ExpectedType>>);
+
+    continue_node c14(follows(b), body, lightweight(), node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c14), continue_node<ExpectedType, lightweight>>);
+
+    continue_node c15(follows(b), 5, body, node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c15), continue_node<ExpectedType>>);
+
+    continue_node c16(follows(b), 5, body, lightweight(), node_priority_t(5));
+    static_assert(std::is_same_v<decltype(c16), continue_node<ExpectedType, lightweight>>);
+#endif
+#endif // __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+
+    continue_node c17(c1);
+    static_assert(std::is_same_v<decltype(c17), continue_node<ExpectedType>>);
+}
+
+int continue_body_f(const tbb::flow::continue_msg&) { return 1; }
+void continue_void_body_f(const tbb::flow::continue_msg&) {}
+
+void test_deduction_guides() {
+    using tbb::flow::continue_msg;
+    test_deduction_guides_common<int>([](const continue_msg&)->int { return 1; } );
+    test_deduction_guides_common<continue_msg>([](const continue_msg&) {});
+
+    test_deduction_guides_common<int>([](const continue_msg&) mutable ->int { return 1; });
+    test_deduction_guides_common<continue_msg>([](const continue_msg&) mutable {});
+
+    test_deduction_guides_common<int>(continue_body_f);
+    test_deduction_guides_common<continue_msg>(continue_void_body_f);
+}
+
+#endif // __TBB_CPP17_DEDUCTION_GUIDES_PRESENT
+
+// TODO: use pass_through from test_function_node instead
+template<typename T>
+struct passing_body {
+    T operator()(const T& val) {
+        return val;
+    }
+};
+
+/*
+    The test covers the case when a node with non-default mutex type is a predecessor for continue_node,
+    because there used to be a bug when make_edge(node, continue_node)
+    did not update continue_node's predecesosor threshold
+    since the specialization of node's successor_cache for a continue_node was not chosen.
+*/
+void test_successor_cache_specialization() {
+    using namespace tbb::flow;
+
+    graph g;
+
+    broadcast_node<continue_msg> node_with_default_mutex_type(g);
+    buffer_node<continue_msg> node_with_non_default_mutex_type(g);
+
+    continue_node<continue_msg> node(g, passing_body<continue_msg>());
+
+    make_edge(node_with_default_mutex_type, node);
+    make_edge(node_with_non_default_mutex_type, node);
+
+    buffer_node<continue_msg> buf(g);
+
+    make_edge(node, buf);
+
+    node_with_default_mutex_type.try_put(continue_msg());
+    node_with_non_default_mutex_type.try_put(continue_msg());
+
+    g.wait_for_all();
+
+    continue_msg storage;
+    ASSERT((buf.try_get(storage) && !buf.try_get(storage)),
+            "Wrong number of messages is passed via continue_node");
+}
 
 int TestMain() {
     if( MinThread<1 ) {
@@ -408,9 +554,15 @@ int TestMain() {
 #if __TBB_PREVIEW_LIGHTWEIGHT_POLICY
    test_lightweight_policy();
 #endif
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
    test_extract();
 #endif
+#if __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+    test_follows_and_precedes_api();
+#endif
+#if __TBB_CPP17_DEDUCTION_GUIDES_PRESENT
+    test_deduction_guides();
+#endif
+   test_successor_cache_specialization();
    return Harness::Done;
 }
-

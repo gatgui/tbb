@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2018 Intel Corporation
+    Copyright (c) 2005-2019 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -12,14 +12,13 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
-
-
-
-
 */
 
 #ifndef __TBB_parallel_sort_H
 #define __TBB_parallel_sort_H
+
+#define __TBB_parallel_sort_H_include_area
+#include "internal/_warning_suppress_enable_notice.h"
 
 #include "parallel_for.h"
 #include "blocked_range.h"
@@ -233,24 +232,10 @@ void parallel_sort(Range& rng, const Compare& comp) {
     parallel_sort(tbb::internal::first(rng), tbb::internal::last(rng), comp);
 }
 
-//! Sorts the data in const rng using the given comparator
-/** @ingroup algorithms **/
-template<typename Range, typename Compare>
-void parallel_sort(const Range& rng, const Compare& comp) {
-    parallel_sort(tbb::internal::first(rng), tbb::internal::last(rng), comp);
-}
-
 //! Sorts the data in rng with a default comparator \c std::less<RandomAccessIterator>
 /** @ingroup algorithms **/
 template<typename Range>
 void parallel_sort(Range& rng) {
-    parallel_sort(tbb::internal::first(rng), tbb::internal::last(rng));
-}
-
-//! Sorts the data in const rng with a default comparator \c std::less<RandomAccessIterator>
-/** @ingroup algorithms **/
-template<typename Range>
-void parallel_sort(const Range& rng) {
     parallel_sort(tbb::internal::first(rng), tbb::internal::last(rng));
 }
 
@@ -264,6 +249,9 @@ inline void parallel_sort( T * begin, T * end ) {
 
 
 } // namespace tbb
+
+#include "internal/_warning_suppress_disable_notice.h"
+#undef __TBB_parallel_sort_H_include_area
 
 #endif
 

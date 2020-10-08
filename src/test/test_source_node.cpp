@@ -1,5 +1,5 @@
 /*
-    Copyright (c) 2005-2018 Intel Corporation
+    Copyright (c) 2005-2019 Intel Corporation
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -12,14 +12,16 @@
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
-
-
-
-
 */
 
 // have to expose the reset_node method to be able to reset a function_body
+
 #include "harness.h"
+
+#if __TBB_CPF_BUILD
+#define TBB_DEPRECATED_FLOW_NODE_EXTRACTION 1
+#endif
+
 #include "harness_graph.h"
 #include "tbb/flow_graph.h"
 #include "tbb/task.h"
@@ -47,7 +49,7 @@ public:
 
     typedef typename tbb::flow::receiver<T>::predecessor_type predecessor_type;
 
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
     typedef typename tbb::flow::receiver<T>::built_predecessors_type built_predecessors_type;
     typedef typename tbb::flow::receiver<T>::predecessor_list_type predecessor_list_type;
     built_predecessors_type bpt;
@@ -64,7 +66,7 @@ public:
        return const_cast<tbb::task *>(SUCCESSFULLY_ENQUEUED);
     }
 
-    tbb::flow::graph& graph_reference() __TBB_override {
+    tbb::flow::graph& graph_reference() const __TBB_override {
         return my_graph;
     }
 
@@ -143,7 +145,7 @@ void test_single_dest() {
    function_body<T> b2( counters2 );
    tbb::flow::function_node<T,bool> dest2(g, tbb::flow::serial, b2 );
    tbb::flow::make_edge( src2, dest2 );
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
    ASSERT(src2.successor_count() == 1, NULL);
    typename tbb::flow::source_node<T>::successor_list_type my_succs;
    src2.copy_successors(my_succs);
@@ -254,7 +256,7 @@ void test_reset() {
     }
 }
 
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
 void test_extract() {
     int counts = 0;
     tbb::flow::tuple<int,int> dont_care;
@@ -398,7 +400,84 @@ void test_extract() {
     g.wait_for_all();
     ASSERT(!q1.try_get(dont_care), "extract of successor did not remove pred link");
 }
-#endif  /* TBB_PREVIEW_FLOW_GRAPH_FEATURES */
+#endif  /* TBB_DEPRECATED_FLOW_NODE_EXTRACTION */
+
+#if __TBB_CPP17_DEDUCTION_GUIDES_PRESENT
+bool source_body_f(int& i) { return i > 5; }
+
+void test_deduction_guides() {
+    using namespace tbb::flow;
+    graph g;
+
+    auto lambda = [](int& i) { return i > 5; };
+    auto non_const_lambda = [](int& i) mutable { return i > 5; };
+
+    // Tests for source_node(graph&, Body)
+    source_node s1(g, lambda);
+    static_assert(std::is_same_v<decltype(s1), source_node<int>>);
+
+    source_node s2(g, non_const_lambda);
+    static_assert(std::is_same_v<decltype(s2), source_node<int>>);
+
+    source_node s3(g, source_body_f);
+    static_assert(std::is_same_v<decltype(s3), source_node<int>>);
+
+    source_node s4(s3);
+    static_assert(std::is_same_v<decltype(s4), source_node<int>>);
+
+#if __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+    broadcast_node<int> bc(g);
+
+    // Tests for source_node(const node_set<Args...>&, Body)
+    source_node s5(precedes(bc), lambda);
+    static_assert(std::is_same_v<decltype(s5), source_node<int>>);
+
+    source_node s6(precedes(bc), non_const_lambda);
+    static_assert(std::is_same_v<decltype(s6), source_node<int>>);
+
+    source_node s7(precedes(bc), source_body_f);
+    static_assert(std::is_same_v<decltype(s7), source_node<int>>);
+#endif
+    g.wait_for_all();
+}
+
+#endif // __TBB_CPP17_DEDUCTION_GUIDES_PRESENT
+
+#if __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+#include <array>
+void test_follows_and_precedes_api() {
+    using namespace tbb::flow;
+
+    graph g;
+
+    std::array<buffer_node<bool>, 3> successors {
+        buffer_node<bool>(g),
+        buffer_node<bool>(g),
+        buffer_node<bool>(g)
+    };
+
+    bool do_try_put = true;
+    source_node<bool> src(precedes(successors[0], successors[1], successors[2]), [&](bool& v) -> bool {
+        if(do_try_put) {
+            v = do_try_put;
+            do_try_put = false;
+            return true;
+        }
+        else {
+            return false;
+        }
+    }, false);
+
+    src.activate();
+    g.wait_for_all();
+
+    bool storage;
+    for(auto& successor: successors) {
+        ASSERT((successor.try_get(storage) && !successor.try_get(storage)),
+            "Not exact edge quantity was made");
+    }
+}
+#endif // __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
 
 int TestMain() {
     if( MinThread<1 ) {
@@ -411,8 +490,14 @@ int TestMain() {
         test_single_dest<float>();
     }
     test_reset();
-#if TBB_PREVIEW_FLOW_GRAPH_FEATURES
+#if TBB_DEPRECATED_FLOW_NODE_EXTRACTION
     test_extract();
+#endif
+#if __TBB_PREVIEW_FLOW_GRAPH_NODE_SET
+    test_follows_and_precedes_api();
+#endif
+#if __TBB_CPP17_DEDUCTION_GUIDES_PRESENT
+    test_deduction_guides();
 #endif
     return Harness::Done;
 }
